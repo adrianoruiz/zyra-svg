@@ -13,16 +13,51 @@ const downloadUrl = ref(null);
 
 const useSolidColor = ref(true);
 const solidColor = ref('#000000');
+const removeBackground = ref(true);
 
-watch([useSolidColor, solidColor, svgResultRaw], () => {
+watch([useSolidColor, solidColor, removeBackground, svgResultRaw], () => {
   if (!svgResultRaw.value) return;
   
   let finalSvg = svgResultRaw.value;
   
-  if (useSolidColor.value) {
-    // Replace all fill="rgb(...)" with the chosen solid color
-    // Specifically looking for the pattern imagetracer generates
-    finalSvg = finalSvg.replace(/fill="[r|#][^"]+"/g, `fill="${solidColor.value}"`);
+  if (useSolidColor.value || removeBackground.value) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(finalSvg, "image/svg+xml");
+      const paths = doc.querySelectorAll("path");
+      
+      paths.forEach(p => {
+        const fill = p.getAttribute("fill");
+        
+        // Remove white/light backgrounds
+        if (removeBackground.value && fill && fill.startsWith("rgb")) {
+          const match = fill.match(/\d+/g);
+          if (match && match.length >= 3) {
+            const r = parseInt(match[0]);
+            const g = parseInt(match[1]);
+            const b = parseInt(match[2]);
+            if (r > 240 && g > 240 && b > 240) {
+              p.remove();
+              return;
+            }
+          }
+        }
+        
+        // Enforce solid color on both fill and stroke
+        if (useSolidColor.value) {
+          if (p.hasAttribute("fill") && p.getAttribute("fill") !== "none") {
+            p.setAttribute("fill", solidColor.value);
+          }
+          if (p.hasAttribute("stroke") && p.getAttribute("stroke") !== "none") {
+            p.setAttribute("stroke", solidColor.value);
+          }
+        }
+      });
+      
+      finalSvg = new XMLSerializer().serializeToString(doc);
+    } catch(e) {
+      console.error("Erro ao processar SVG", e);
+    }
   }
   
   svgResult.value = finalSvg;
@@ -56,6 +91,7 @@ const processImage = (imgDataUrl) => {
   const options = {
     strokewidth: 1,
     linefilter: true,
+    scale: 1,
   };
 
   // imageToSVG expects image URL, callback, options
@@ -95,6 +131,10 @@ const processImage = (imgDataUrl) => {
       </div>
 
       <div class="options-area" v-if="imageUrl">
+        <label class="option-row">
+          <input type="checkbox" v-model="removeBackground" />
+          Remover Fundo Branco (Transparente)
+        </label>
         <label class="option-row">
           <input type="checkbox" v-model="useSolidColor" />
           Preencher com Cor Sólida
